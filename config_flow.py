@@ -1,66 +1,109 @@
-# ... (imports and STEP_USER_DATA_SCHEMA remain the same) ...
+import logging
+from typing import Any, Dict, Optional
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input allows us to connect.
+import voluptuous as vol
+from homeassistant import config_entries
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import aiohttp_client
 
-    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
-    """
-    # *** CRITICAL FIX: Strip whitespace from inputs ***
+from .const import DOMAIN
+
+_LOGGER = logging.getLogger(__name__)
+
+STEP_USER_DATA_SCHEMA = vol.Schema(
+    {
+        vol.Required("username"): str,
+        vol.Required("api_key"): str,
+    }
+)
+
+API_LOOKUP_URL = "https://api.donutsmp.net/v1/lookup/{0}"
+API_STATS_URL = "https://api.donutsmp.net/v1/stats/{0}"
+
+
+class CannotConnect(Exception):
+    """Error to indicate we cannot connect."""
+
+
+class InvalidAuth(Exception):
+    """Error to indicate there is invalid auth."""
+
+
+async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate the user input allows us to connect."""
+
     username = data["username"].strip()
-    raw_api_key = data.get("api_key", "").strip() # Ensure it's treated as string and stripped
+    raw_api_key = data["api_key"].strip()
 
-    # --- TROUBLESHOOTING CHECKPOINT ---
-    # We will log the length of the key to see if any unexpected characters are present.
-    _LOGGER.info("Attempting validation for user: %s (API key length: %d)", username, len(raw_api_key))
+    headers = {
+        "X-API-Key": raw_api_key
+    }
 
-
-    headers = {}
-    # Use the cleaned key for the check
-    if raw_api_key and raw_api_key.lower() != "none":
-        # 1. Use the standard custom API key header (X-API-Key)
-        headers["X-API-Key"] = raw_api_key
-
-        # 2. **If the fix above fails, UNCOMMENT the line below and try 'Authorization'**
-        # headers["Authorization"] = f"Bearer {raw_api_key}"
-
-
-    # Test the credentials by making a request to the lookup endpoint
     test_url = API_LOOKUP_URL.format(username)
-    
+    session = aiohttp_client.async_get_clientsession(hass)
+
     try:
-        # We must set a timeout here, especially for a validation step
-        async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as session:
-            async with session.get(test_url) as response:
-                
-                # Check for 404 first
-                if response.status == 404:
-                    _LOGGER.warning("User not found: %s", username)
-                    raise InvalidAuth("user_not_found")
-                
-                response.raise_for_status() # Raises for 4xx/5xx status codes (e.g., 401 Unauthorized)
-
-                data = await response.json()
-                
-                if not data or not data.get("uuid"):
-                    raise InvalidAuth("user_not_found") 
-
-    except aiohttp.ClientConnectorError as err:
-        _LOGGER.error("Connection error: %s", err)
-        raise CannotConnect from err
-    except aiohttp.ClientResponseError as err:
-        _LOGGER.error("API response error (status %s) for user %s: %s", err.status, username, err)
-        if err.status == 401:
-            raise InvalidAuth("invalid_api_key")
-        # Handle other 4xx/5xx errors
-        raise InvalidAuth("unknown_api_error") from err
-    except InvalidAuth:
-        # Re-raise explicit InvalidAuth exceptions
-        raise
+        async with session.get(test_url, headers=headers, timeout=10) as response:
+            if response.status == 404:
+                _LOGGER.warning("User not found: %s", username)
+                raise InvalidAuth("user_not_found")
+            elif response.status == 401:
+                raise InvalidAuth("invalid_api_key")
+            response.raise_for_status()
+            data = await response.json()
+            if not data or not data.get("uuid"):
+                raise InvalidAuth("user_not_found")
     except Exception as err:
-        _LOGGER.error("An unexpected error occurred during validation: %s", err)
-        raise InvalidAuth("unknown_api_error") from err
+        _LOGGER.error("Error connecting to API: %s", err)
+        raise CannotConnect from err
 
     # Return info that you want to store in the config entry.
-    return {"title": f"Donut SMP: {username}", "uuid": data["uuid"]}
+    # Storing lookup and stats URLs for later use
+    return {
+        "title": f"Donut SMP: {username}",
+        "username": username,
+        "api_key": raw_api_key,
+        "uuid": data.get("uuid", "unknown"),
+        "lookup_url": test_url,
+        "stats_url": API_STATS_URL.format(username),
+    }
 
-# ... (ConfigFlow class and Exception classes remain the same) ...
+
+class DonutsmphaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for Donuts SMP HA."""
+
+    VERSION = 1
+
+    def __init__(self):
+        self.data: Optional[Dict[str, Any]] = None
+
+    async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None):
+        errors = {}
+
+        if user_input is not None:
+            try:
+                info = await validate_input(self.hass, user_input)
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected exception during config flow")
+                errors["base"] = "unknown"
+
+            if not errors:
+                # Save info for later use!
+                return self.async_create_entry(
+                    title=info["title"],
+                    data={
+                        "username": info["username"],
+                        "api_key": info["api_key"],
+                        "uuid": info["uuid"],
+                        "lookup_url": info["lookup_url"],
+                        "stats_url": info["stats_url"],
+                    }
+                )
+
+        return self.async_show_form(
+            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+        )

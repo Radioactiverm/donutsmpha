@@ -1,5 +1,5 @@
 {
-  "domain": "donutsmp-ha",
+  "domain": "donutsmpha",
   "name": "Donut SMP",
   "codeowners": [@radioactiverm],
   "config_flow": true,

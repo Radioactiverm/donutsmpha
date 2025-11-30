@@ -1,94 +1,68 @@
-"""DataUpdateCoordinator for Donut SMP."""
+"""DataUpdateCoordinator for the Donut SMP integration."""
 from __future__ import annotations
 
-from datetime import timedelta
 import logging
-import json
-from typing import Any
+from datetime import timedelta
 
-import aiohttp
-
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 
-from .const import API_STATS_URL, API_LOOKUP_URL, DOMAIN, UPDATE_INTERVAL_SECONDS
+from .const import DOMAIN, API_STATS_URL, UPDATE_INTERVAL_SECONDS # Use your constants
 
 _LOGGER = logging.getLogger(__name__)
 
-class DonutSMPDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Coordinator to fetch data from the Donut SMP API."""
+# NOTE: You will need an API client class to replace this placeholder.
+# For now, we simulate success, but eventually, this is where you call your API.
+class DonutSMPClient:
+    """Minimal client class to simulate API connection."""
+    def __init__(self, username: str, api_key: str | None = None) -> None:
+        """Initialize the API client."""
+        self.username = username
+        self.api_key = api_key
+        # In a real implementation, you would store an aiohttp.ClientSession here
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialize my coordinator."""
-        self.entry = entry
-        self.username = entry.data["username"]
+    async def get_latest_stats(self) -> dict:
+        """Fetch the latest stats from the Donut SMP API."""
+        # Replace this placeholder logic with your actual aiohttp call
+        _LOGGER.debug("Fetching stats for user: %s", self.username)
+        
+        # Simulate a successful API response with some data fields
+        return {
+            "is_online": True,
+            "last_login": "2025-11-30T01:00:00Z",
+            "kills": 42,
+            "deaths": 10
+        }
+
+class DonutSMPCoordinator(DataUpdateCoordinator):
+    """The main coordinator for the Donut SMP integration."""
+
+    def __init__(self, hass: HomeAssistant, entry: dict) -> None:
+        """Initialize the coordinator."""
+        self.username = entry.data.get("username")
         self.api_key = entry.data.get("api_key")
-        self.uuid = None # Will be set during the first successful update
+
+        # Initialize the API Client
+        self.client = DonutSMPClient(self.username, self.api_key)
 
         super().__init__(
             hass,
             _LOGGER,
-            # Name of your custom component (used for logging)
+            # Name of your integration (for logging)
             name=DOMAIN,
-            # Polling interval is defined in const.py
+            # Update interval
             update_interval=timedelta(seconds=UPDATE_INTERVAL_SECONDS),
         )
 
-    async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch data from API endpoint."""
-        data = {}
-        
-        headers = {}
-        if self.api_key and self.api_key.lower() != "none":
-            # Using X-API-Key header based on troubleshooting
-            headers["X-API-Key"] = self.api_key
-        
-        stats_url = API_STATS_URL.format(self.username)
-        lookup_url = API_LOOKUP_URL.format(self.username)
-
+    async def _async_update_data(self) -> dict:
+        """Fetch data from the API."""
         try:
-            async with aiohttp.ClientSession(headers=headers) as session:
-                
-                # 1. Fetch Stats Data
-                async with session.get(stats_url) as stats_response:
-                    stats_response.raise_for_status()
-                    stats_data = await stats_response.json()
-                    
-                    if not stats_data:
-                        raise UpdateFailed(f"Stats API returned empty data for {self.username}")
-                    
-                    data.update(stats_data)
-                
-                # 2. Fetch Lookup Data (for UUID and display name consistency)
-                async with session.get(lookup_url) as lookup_response:
-                    lookup_response.raise_for_status()
-                    lookup_data = await lookup_response.json()
-
-                    if not lookup_data or not lookup_data.get("uuid"):
-                        raise UpdateFailed(f"Lookup API could not find UUID for {self.username}")
-                        
-                    data.update(lookup_data)
-                    self.uuid = lookup_data.get("uuid")
-
-                _LOGGER.debug("Successfully fetched data for %s: %s", self.username, json.dumps(data))
-                
-                return data
-
-        except aiohttp.ClientResponseError as err:
-            if err.status == 404:
-                # User not found or endpoint not found
-                raise UpdateFailed(f"Resource not found (404) for user {self.username}. Check username/endpoint: {err}")
-            if err.status == 401:
-                # Authentication failed
-                raise UpdateFailed(f"API Key Unauthorized (401). Check API key: {err}")
-            
-            _LOGGER.error("API Error: %s for user %s", err, self.username)
-            raise UpdateFailed(f"Error communicating with API: {err}") from err
-            
-        except aiohttp.ClientConnectorError as err:
-            _LOGGER.error("Connection Error: %s", err)
-            raise UpdateFailed(f"Connection failed: {err}") from err
+            # This is where the API call happens
+            data = await self.client.get_latest_stats()
+            return data
         except Exception as err:
-            _LOGGER.exception("An unexpected error occurred during data update")
-            raise UpdateFailed(f"An unexpected error occurred: {err}") from err
+            # Handle connection errors or bad data here
+            raise UpdateFailed(f"Error fetching Donut SMP data: {err}") from err

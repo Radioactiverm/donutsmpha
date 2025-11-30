@@ -6,7 +6,7 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import aiohttp_client
 
-from .const import DOMAIN
+from .const import DOMAIN, API_LOOKUP_URL, API_STATS_URL
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -16,9 +16,6 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Required("api_key"): str,
     }
 )
-
-API_LOOKUP_URL = "https://api.donutsmp.net/v1/lookup/{0}"
-API_STATS_URL = "https://api.donutsmp.net/v1/stats/{0}"
 
 
 class CannotConnect(Exception):
@@ -48,29 +45,32 @@ async def validate_input(hass: HomeAssistant, data: Dict[str, Any]) -> Dict[str,
                 _LOGGER.warning("User not found: %s", username)
                 raise InvalidAuth("user_not_found")
             elif response.status == 401:
+                _LOGGER.warning("Invalid API key for user: %s", username)
                 raise InvalidAuth("invalid_api_key")
             response.raise_for_status()
-            data = await response.json()
-            if not data or not data.get("uuid"):
+            api_data = await response.json()
+            if not api_data or not api_data.get("uuid"):
                 raise InvalidAuth("user_not_found")
+    except InvalidAuth:
+        # Bubble up authentication errors correctly for config flow UI
+        raise
     except Exception as err:
         _LOGGER.error("Error connecting to API: %s", err)
         raise CannotConnect from err
 
     # Return info that you want to store in the config entry.
-    # Storing lookup and stats URLs for later use
     return {
         "title": f"Donut SMP: {username}",
         "username": username,
         "api_key": raw_api_key,
-        "uuid": data.get("uuid", "unknown"),
+        "uuid": api_data.get("uuid", "unknown"),
         "lookup_url": test_url,
         "stats_url": API_STATS_URL.format(username),
     }
 
 
 class DonutsmphaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Donuts SMP HA."""
+    """Handle a config flow for Donut SMP HA."""
 
     VERSION = 1
 
@@ -85,14 +85,20 @@ class DonutsmphaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 info = await validate_input(self.hass, user_input)
             except CannotConnect:
                 errors["base"] = "cannot_connect"
-            except InvalidAuth:
-                errors["base"] = "invalid_auth"
+            except InvalidAuth as auth_err:
+                # Show specific error if provided
+                err_str = getattr(auth_err, 'args', [None])[0]
+                if err_str == "invalid_api_key":
+                    errors["base"] = "invalid_auth"
+                elif err_str == "user_not_found":
+                    errors["base"] = "user_not_found"
+                else:
+                    errors["base"] = "invalid_auth"
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception during config flow")
                 errors["base"] = "unknown"
 
             if not errors:
-                # Save info for later use!
                 return self.async_create_entry(
                     title=info["title"],
                     data={

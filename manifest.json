@@ -1,7 +1,7 @@
 {
   "domain": "donutsmp",
   "name": "Donut SMP",
-  "codeowners": [],
+  "codeowners": [@radioactiverm],
   "config_flow": true,
   "documentation": "https://github.com/Radioactiverm/donutsmp-ha",
   "iot_class": "cloud_polling",

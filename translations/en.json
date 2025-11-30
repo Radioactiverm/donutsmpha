@@ -1,0 +1,61 @@
+{
+  "component": {
+    "title": "Donut SMP",
+    "description": "Fetch stats and player info from DonutSMP server"
+  },
+  "entity": {
+    "sensor": {
+      "donutsmp_location": {
+        "name": "DonutSMP Location",
+        "state": {
+          "description": "Current server location of the player"
+        }
+      },
+      "donutsmp_stat_kills": {
+        "name": "DonutSMP Kills"
+      },
+      "donutsmp_stat_deaths": {
+        "name": "DonutSMP Deaths"
+      },
+      "donutsmp_stat_mobs_killed": {
+        "name": "DonutSMP Mobs Killed"
+      },
+      "donutsmp_stat_broken_blocks": {
+        "name": "DonutSMP Broken Blocks"
+      },
+      "donutsmp_stat_placed_blocks": {
+        "name": "DonutSMP Placed Blocks"
+      },
+      "donutsmp_stat_money": {
+        "name": "DonutSMP Money"
+      },
+      "donutsmp_stat_money_made_from_sell": {
+        "name": "DonutSMP Money Made (Sell)"
+      },
+      "donutsmp_stat_money_spent_on_shop": {
+        "name": "DonutSMP Money Spent (Shop)"
+      },
+      "donutsmp_stat_shards": {
+        "name": "DonutSMP Shards"
+      },
+      "donutsmp_stat_playtime": {
+        "name": "DonutSMP Playtime"
+      }
+    }
+  },
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "username": "DonutSMP Username",
+          "api_key": "DonutSMP API Key"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid API key or username — please verify and try again.",
+      "cannot_connect": "Cannot connect to DonutSMP API — check your network and API key.",
+      "unknown": "Unexpected error — check Home Assistant logs."
+    }
+  }
+}
